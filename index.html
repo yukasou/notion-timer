@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notionタイマー</title>
+    <title>タスクタイマー</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -12,37 +12,41 @@
             align-items: center;
             justify-content: center;
             margin: 0;
-            padding: 20px;
-            background-color: #ffffff;
+            padding: 0;
+            background-color: transparent;
         }
         .timer-container {
             background-color: #f7f6f3;
             border-radius: 8px;
-            padding: 20px;
-            width: 300px;
+            padding: 15px;
+            width: 260px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             text-align: center;
+            margin: 0 auto;
         }
         .display {
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: bold;
-            margin: 15px 0;
+            margin: 10px 0;
             color: #37352f;
             font-family: monospace;
         }
         .buttons {
             display: flex;
             justify-content: center;
-            gap: 10px;
-            margin-bottom: 15px;
+            gap: 5px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
         }
         button {
-            padding: 8px 15px;
+            padding: 6px 12px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             font-weight: 500;
             transition: background-color 0.2s;
+            margin: 3px 2px;
+            font-size: 0.8rem;
         }
         .start {
             background-color: #2ecc71;
@@ -64,44 +68,69 @@
             background-color: #95a5a6;
             color: white;
         }
+        .task-id {
+            font-size: 0.8rem;
+            color: #777;
+            margin-bottom: 5px;
+        }
+        .task-name {
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 1rem;
+            color: #333;
+        }
         .history {
-            margin-top: 20px;
+            margin-top: 15px;
             width: 100%;
             text-align: left;
         }
         .history h3 {
-            font-size: 1rem;
-            margin-bottom: 10px;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
             color: #37352f;
         }
         .history-list {
             background-color: white;
             border-radius: 4px;
-            padding: 10px;
-            max-height: 150px;
+            padding: 8px;
+            max-height: 120px;
             overflow-y: auto;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
         }
         .history-item {
             border-bottom: 1px solid #f1f1f1;
-            padding: 5px 0;
+            padding: 4px 0;
         }
         .history-item:last-child {
             border-bottom: none;
         }
         .clear-history {
-            margin-top: 10px;
+            margin-top: 8px;
             background-color: #ddd;
             color: #333;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+        }
+        h2 {
+            margin-top: 5px;
+            margin-bottom: 10px;
+            color: #37352f;
+            font-size: 1.2rem;
+        }
+        .total-time {
             font-size: 0.8rem;
-            padding: 5px 10px;
+            margin-top: 5px;
+            color: #555;
         }
     </style>
 </head>
 <body>
     <div class="timer-container">
-        <h2>タイマー</h2>
+        <h2>タスクタイマー</h2>
+        <div class="task-id" id="taskId"></div>
+        <div class="task-name" id="taskName">タスク</div>
         <div class="display" id="display">00:00:00</div>
+        <div class="total-time" id="totalTime">合計時間: 00:00:00</div>
         <div class="buttons">
             <button class="start" id="startBtn">開始</button>
             <button class="pause" id="pauseBtn" disabled>一時停止</button>
@@ -110,7 +139,7 @@
             <button class="reset" id="resetBtn" disabled>リセット</button>
         </div>
         <div class="history">
-            <h3>計測履歴</h3>
+            <h3>履歴</h3>
             <div class="history-list" id="historyList"></div>
             <button class="clear-history" id="clearHistoryBtn">履歴をクリア</button>
         </div>
@@ -118,8 +147,18 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // URLからタスクIDとタスク名を取得
+            const urlParams = new URLSearchParams(window.location.search);
+            const taskId = urlParams.get('taskId') || 'task_' + Math.random().toString(36).substr(2, 9);
+            const taskName = urlParams.get('taskName') || 'タスク';
+            
+            // タスクIDとタスク名を表示
+            document.getElementById('taskId').textContent = `ID: ${taskId}`;
+            document.getElementById('taskName').textContent = taskName;
+            
             // 要素の取得
             const display = document.getElementById('display');
+            const totalTimeDisplay = document.getElementById('totalTime');
             const startBtn = document.getElementById('startBtn');
             const pauseBtn = document.getElementById('pauseBtn');
             const resumeBtn = document.getElementById('resumeBtn');
@@ -135,9 +174,15 @@
             let isRunning = false;
             let isPaused = false;
             let sessionHistory = [];
+            let totalTimeSpent = 0; // 合計時間（ミリ秒）
             
-            // ローカルストレージから履歴を読み込む
+            // タスク固有のストレージキー
+            const storageKey = `timerHistory_${taskId}`;
+            const totalTimeKey = `totalTime_${taskId}`;
+            
+            // ローカルストレージから履歴と合計時間を読み込む
             loadHistory();
+            loadTotalTime();
             
             // 時間のフォーマット関数
             function formatTime(milliseconds) {
@@ -157,6 +202,13 @@
                 const currentTime = Date.now();
                 elapsedTime = currentTime - startTime;
                 display.textContent = formatTime(elapsedTime);
+            }
+            
+            // 合計時間の更新と表示
+            function updateTotalTime() {
+                totalTimeDisplay.textContent = `合計時間: ${formatTime(totalTimeSpent)}`;
+                // ローカルストレージに保存
+                localStorage.setItem(totalTimeKey, totalTimeSpent);
             }
             
             // 開始ボタンのイベント
@@ -218,11 +270,16 @@
                 const historyItem = {
                     date: now.toLocaleDateString(),
                     time: now.toLocaleTimeString(),
-                    duration: formattedTime
+                    duration: formattedTime,
+                    milliseconds: finalTime
                 };
                 sessionHistory.push(historyItem);
                 saveHistory();
                 updateHistoryDisplay();
+                
+                // 合計時間を更新
+                totalTimeSpent += finalTime;
+                updateTotalTime();
                 
                 // リセット
                 elapsedTime = 0;
@@ -254,25 +311,41 @@
             
             // 履歴クリアボタンのイベント
             clearHistoryBtn.addEventListener('click', function() {
-                if (confirm('本当に履歴をクリアしますか？')) {
+                if (confirm('本当に履歴をクリアしますか？合計時間もリセットされます。')) {
                     sessionHistory = [];
+                    totalTimeSpent = 0;
                     saveHistory();
+                    updateTotalTime();
                     updateHistoryDisplay();
                 }
             });
             
             // 履歴の保存
             function saveHistory() {
-                localStorage.setItem('timerHistory', JSON.stringify(sessionHistory));
+                localStorage.setItem(storageKey, JSON.stringify(sessionHistory));
             }
             
             // 履歴の読み込み
             function loadHistory() {
-                const saved = localStorage.getItem('timerHistory');
+                const saved = localStorage.getItem(storageKey);
                 if (saved) {
                     sessionHistory = JSON.parse(saved);
                     updateHistoryDisplay();
                 }
+            }
+            
+            // 合計時間の読み込み
+            function loadTotalTime() {
+                const savedTotal = localStorage.getItem(totalTimeKey);
+                if (savedTotal) {
+                    totalTimeSpent = parseInt(savedTotal, 10);
+                } else {
+                    // 保存された合計時間がない場合は履歴から計算
+                    totalTimeSpent = sessionHistory.reduce((total, item) => {
+                        return total + (item.milliseconds || 0);
+                    }, 0);
+                }
+                updateTotalTime();
             }
             
             // 履歴の表示更新
